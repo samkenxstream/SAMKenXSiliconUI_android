@@ -56,7 +56,6 @@ import org.matrix.android.sdk.api.util.MatrixItem
 import org.matrix.android.sdk.api.util.awaitCallback
 import org.matrix.android.sdk.api.util.fromBase64
 import org.matrix.android.sdk.api.util.toMatrixItem
-
 import timber.log.Timber
 
 data class VerificationBottomSheetViewState(
