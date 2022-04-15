@@ -364,13 +364,47 @@ class CryptoTestHelper(private val testHelper: CommonTestHelper) {
         assertTrue(alice.cryptoService().crossSigningService().canCrossSign())
         assertTrue(bob.cryptoService().crossSigningService().canCrossSign())
 
-        val requestID = UUID.randomUUID().toString()
         val aliceVerificationService = alice.cryptoService().verificationService()
         val bobVerificationService = bob.cryptoService().verificationService()
 
+        val localId = UUID.randomUUID().toString()
+        aliceVerificationService.requestKeyVerificationInDMs(
+                localId = localId,
+                methods = listOf(VerificationMethod.SAS, VerificationMethod.QR_CODE_SCAN, VerificationMethod.QR_CODE_SHOW),
+                otherUserId = bob.myUserId,
+                roomId = roomId
+        ).transactionId
+
+        testHelper.waitWithLatch {
+            testHelper.retryPeriodicallyWithLatch(it) {
+                    bobVerificationService.getExistingVerificationRequests(alice.myUserId).firstOrNull {
+                        it.requestInfo?.fromDevice == alice.sessionParams.deviceId
+                    } != null
+            }
+        }
+        val incomingRequest = bobVerificationService.getExistingVerificationRequests(alice.myUserId).first {
+            it.requestInfo?.fromDevice == alice.sessionParams.deviceId
+        }
+        bobVerificationService.readyPendingVerification(listOf(VerificationMethod.SAS), alice.myUserId, incomingRequest.transactionId!!)
+
+        var requestID: String? = null
+        // wait for it to be readied
+        testHelper.waitWithLatch {
+            testHelper.retryPeriodicallyWithLatch(it) {
+                val outgoingRequest = aliceVerificationService.getExistingVerificationRequests(bob.myUserId)
+                        .firstOrNull { it.localId == localId }
+                if (outgoingRequest?.isReady == true) {
+                    requestID = outgoingRequest.transactionId!!
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+
         aliceVerificationService.beginKeyVerificationInDMs(
                 VerificationMethod.SAS,
-                requestID,
+                requestID!!,
                 roomId,
                 bob.myUserId,
                 bob.sessionParams.credentials.deviceId!!)
@@ -379,23 +413,9 @@ class CryptoTestHelper(private val testHelper: CommonTestHelper) {
         var alicePovTx: OutgoingSasVerificationTransaction? = null
         var bobPovTx: IncomingSasVerificationTransaction? = null
 
-        // wait for alice to get the ready
         testHelper.waitWithLatch {
             testHelper.retryPeriodicallyWithLatch(it) {
-                bobPovTx = bobVerificationService.getExistingTransaction(alice.myUserId, requestID) as? IncomingSasVerificationTransaction
-                Log.v("TEST", "== bobPovTx is ${alicePovTx?.uxState}")
-                if (bobPovTx?.state == VerificationTxState.OnStarted) {
-                    bobPovTx?.performAccept()
-                    true
-                } else {
-                    false
-                }
-            }
-        }
-
-        testHelper.waitWithLatch {
-            testHelper.retryPeriodicallyWithLatch(it) {
-                alicePovTx = aliceVerificationService.getExistingTransaction(bob.myUserId, requestID) as? OutgoingSasVerificationTransaction
+                alicePovTx = aliceVerificationService.getExistingTransaction(bob.myUserId, requestID!!) as? OutgoingSasVerificationTransaction
                 Log.v("TEST", "== alicePovTx is ${alicePovTx?.uxState}")
                 alicePovTx?.state == VerificationTxState.ShortCodeReady
             }
@@ -403,7 +423,7 @@ class CryptoTestHelper(private val testHelper: CommonTestHelper) {
         // wait for alice to get the ready
         testHelper.waitWithLatch {
             testHelper.retryPeriodicallyWithLatch(it) {
-                bobPovTx = bobVerificationService.getExistingTransaction(alice.myUserId, requestID) as? IncomingSasVerificationTransaction
+                bobPovTx = bobVerificationService.getExistingTransaction(alice.myUserId, requestID!!) as? IncomingSasVerificationTransaction
                 Log.v("TEST", "== bobPovTx is ${alicePovTx?.uxState}")
                 if (bobPovTx?.state == VerificationTxState.OnStarted) {
                     bobPovTx?.performAccept()
